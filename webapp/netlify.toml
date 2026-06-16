@@ -1,0 +1,14 @@
+# Netlify configuration for the Glass-Box Chess web app.
+# The site is fully static (engine runs in the browser); the only
+# serverless piece is the optional Gemini coach function.
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+# Friendly URL for the coach function (optional; the default
+# /.netlify/functions/coach also works and is what the app calls).
+[[redirects]]
+  from = "/api/coach"
+  to = "/.netlify/functions/coach"
+  status = 200

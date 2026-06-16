@@ -1,69 +1,20 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
+# Compiled engine binaries / build output
+chess
+chess.exe
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
 *.exe
-*.out
-*.app
-
-# Build directories
 build/
-Build/
-build-*/
 
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
+# Stray/test files
+_persist_test.txt
 
-# Temporary files
-*.tmp
-*.log
-*.bak
-*.swp
+# Archives (don't commit zipped copies)
+*.zip
 
-# vcpkg
-vcpkg_installed/
+# Node
+node_modules/
 
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/
+# OS
+.DS_Store
+Thumbs.db

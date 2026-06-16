@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Glass-Box Chess — engine + coach</title>
+<style>
+  :root {
+    --bg:#1f2127; --panel:#2a2d36; --panel2:#20232b; --text:#e8eaed; --muted:#9aa0aa;
+    --light:#ebecd0; --dark:#739552; --sel:rgba(255,235,59,0.55); --last:rgba(255,235,59,0.32);
+    --dot:rgba(20,20,20,0.28);
+    --check:radial-gradient(circle, rgba(255,60,60,0.95) 0%, rgba(255,40,40,0.65) 45%, rgba(255,0,0,0) 75%);
+    --accent:#6aa6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:18px; background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; }
+  .app { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  h1 { font-size:17px; margin:0 0 10px; font-weight:600; }
+  h2 { font-size:14px; margin:0; font-weight:600; }
+  .muted { color:var(--muted); }
+
+  .board-wrap { position:relative; }
+  .board { width:min(92vw,540px); aspect-ratio:1/1; display:grid;
+    grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
+    border-radius:8px; overflow:hidden; touch-action:none; box-shadow:0 10px 40px rgba(0,0,0,0.45); user-select:none; }
+  .sq { position:relative; display:flex; align-items:center; justify-content:center; }
+  .sq.light { background:var(--light); } .sq.dark { background:var(--dark); }
+  .sq.sel::after { content:""; position:absolute; inset:0; background:var(--sel); }
+  .sq.last::after { content:""; position:absolute; inset:0; background:var(--last); }
+  .sq.check::before { content:""; position:absolute; inset:0; background:var(--check); z-index:0; }
+  .piece { position:relative; z-index:2; font-size:min(11vw,60px); line-height:1; cursor:grab;
+    text-shadow:0 1px 2px rgba(0,0,0,0.35); }
+  .piece.w { color:#fff; -webkit-text-stroke:1.4px #4a4a4a; }
+  .piece.b { color:#2b2b2b; -webkit-text-stroke:1.4px #cfcfcf; }
+  .sq .dot { position:absolute; width:30%; height:30%; border-radius:50%; background:var(--dot); z-index:1; pointer-events:none; }
+  .sq .ring { position:absolute; inset:8%; border-radius:50%; border:6px solid var(--dot); z-index:1; pointer-events:none; }
+  .coord { position:absolute; font-size:10px; font-weight:700; opacity:0.6; z-index:3; pointer-events:none; }
+  .coord.file { right:3px; bottom:1px; } .coord.rank { left:3px; top:1px; }
+  .sq.light .coord { color:#739552; } .sq.dark .coord { color:#ebecd0; }
+  .ghost { position:fixed; z-index:999; pointer-events:none; font-size:min(11vw,60px); line-height:1;
+    transform:translate(-50%,-50%); text-shadow:0 4px 8px rgba(0,0,0,0.5); }
+  .ghost.w { color:#fff; -webkit-text-stroke:1.4px #4a4a4a; } .ghost.b { color:#2b2b2b; -webkit-text-stroke:1.4px #cfcfcf; }
+
+  .col { display:flex; flex-direction:column; gap:14px; width:300px; max-width:92vw; }
+  .panel { background:var(--panel); border-radius:10px; padding:14px; }
+  .status { display:flex; align-items:center; gap:9px; min-height:22px; margin-bottom:10px; }
+  .turn-dot { width:13px; height:13px; border-radius:50%; border:1px solid #888; }
+  .turn-dot.w { background:#fff; } .turn-dot.b { background:#2b2b2b; }
+  .status.check .status-text { color:#ff6b6b; font-weight:600; }
+  .status.over .status-text { color:var(--accent); font-weight:600; }
+  .spinner { width:13px; height:13px; border:2px solid var(--muted); border-top-color:transparent;
+    border-radius:50%; animation:spin .8s linear infinite; display:none; }
+  .spinner.on { display:inline-block; } @keyframes spin { to { transform:rotate(360deg); } }
+  .evalline { font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .evalline b { color:var(--text); }
+
+  .controls { display:grid; gap:9px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  label { font-size:13px; color:var(--muted); }
+  select,button { background:#363a45; color:var(--text); border:1px solid #454a57; border-radius:6px;
+    padding:7px 10px; font-size:13px; cursor:pointer; }
+  select { min-width:130px; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#0b1220; border-color:var(--accent); font-weight:600; }
+  .btns { display:flex; gap:8px; } .btns button { flex:1; }
+  .chk { display:flex; align-items:center; gap:7px; font-size:13px; color:var(--muted); cursor:pointer; }
+  .chk input { width:15px; height:15px; }
+
+  .coach-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .feedback { background:var(--panel2); border-radius:8px; padding:10px; font-size:13px; line-height:1.5; min-height:38px; }
+  .badge { display:inline-block; font-weight:700; border-radius:5px; padding:1px 7px; margin-right:6px; font-size:12px; }
+  .q-best { background:#2e7d32; color:#fff; } .q-good { background:#3f6fb0; color:#fff; }
+  .q-inacc { background:#b59a00; color:#1a1a1a; } .q-mist { background:#c0631c; color:#fff; } .q-blun { background:#b3261e; color:#fff; }
+  .coach-btns { display:flex; gap:8px; margin:10px 0; } .coach-btns button { flex:1; }
+
+  .chat { display:flex; flex-direction:column; gap:8px; }
+  .chatlog { background:var(--panel2); border-radius:8px; padding:8px; height:150px; overflow-y:auto; font-size:13px; line-height:1.5; }
+  .chatlog .you { color:var(--accent); } .chatlog .ai { color:var(--text); } .chatlog .sys { color:var(--muted); font-style:italic; }
+  .chatlog p { margin:0 0 8px; }
+  .chatrow,.keyrow { display:flex; gap:8px; }
+  .chatrow input,.keyrow input { flex:1; background:#363a45; color:var(--text); border:1px solid #454a57; border-radius:6px; padding:8px; font-size:13px; }
+  .keyrow { margin-bottom:6px; }
+  .keystatus { font-size:12px; margin-bottom:10px; min-height:15px; }
+  .keystatus.ok { color:#7bd88f; } .keystatus.bad { color:#ff8a8a; } .keystatus.warn { color:#ffcf6b; }
+
+  .moves { height:120px; overflow-y:auto; background:var(--panel2); border-radius:6px; padding:8px;
+    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; line-height:1.7; }
+  .moves .mv { display:inline-block; min-width:56px; } .moves .num { color:var(--muted); display:inline-block; min-width:24px; }
+
+  .promo-backdrop,.dialog-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.5); display:none;
+    align-items:center; justify-content:center; z-index:50; border-radius:8px; }
+  .promo-backdrop.on,.dialog-backdrop.on { display:flex; }
+  .promo { background:var(--panel); border-radius:10px; padding:12px; display:flex; gap:8px; }
+  .promo button { font-size:38px; padding:6px 10px; line-height:1; }
+  .dialog { background:var(--panel); border-radius:10px; padding:16px; width:80%; max-width:300px; }
+  .dialog p { font-size:13px; line-height:1.5; margin:0 0 14px; }
+  .dialog .dlg-btns { display:flex; gap:8px; }
+  .dialog .dlg-btns button { flex:1; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="board-wrap">
+      <div class="board" id="board"></div>
+      <div class="promo-backdrop" id="promo"><div class="promo" id="promoBtns"></div></div>
+      <div class="dialog-backdrop" id="dialog">
+        <div class="dialog">
+          <p id="dialogText"></p>
+          <div class="dlg-btns">
+            <button id="dlgTakeback">Take back</button>
+            <button class="primary" id="dlgPlay">Play anyway</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <h1>Glass-Box Chess <span class="muted">· engine + coach</span></h1>
+        <div class="status" id="status">
+          <span class="turn-dot w" id="turnDot"></span>
+          <span class="status-text" id="statusText">White to move</span>
+          <span class="spinner" id="spinner"></span>
+        </div>
+        <div class="evalline">Static eval: <b id="evalText">+0.0</b> <span class="muted">(material + position, no search)</span></div>
+        <div class="controls">
+          <div class="row"><label for="mode">Mode</label>
+            <select id="mode"><option value="cpu">Play vs Computer</option><option value="2p">Two players</option></select></div>
+          <div class="row" id="sideRow"><label for="side">Play as</label>
+            <select id="side"><option value="w">White</option><option value="b">Black</option></select></div>
+          <div class="row" id="timeRow"><label for="time">Engine strength</label>
+            <select id="time">
+              <option value="200">Fast</option>
+              <option value="600" selected>Normal</option>
+              <option value="1500">Strong</option>
+              <option value="3000">Max</option>
+            </select></div>
+        </div>
+        <div class="btns">
+          <button class="primary" id="newGame">New game</button>
+          <button id="undo">Undo</button>
+          <button id="flip">Flip</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="coach-head">
+          <h2>Coach</h2>
+          <label class="chk"><input type="checkbox" id="coachOn" checked /> on</label>
+        </div>
+        <label class="chk" style="margin-bottom:10px"><input type="checkbox" id="blunderAlert" /> Blunder alert (warn before bad moves)</label>
+        <div class="keyrow">
+          <input type="password" id="geminiKey" placeholder="Your Gemini API key (optional)" autocomplete="off" />
+          <button id="saveKey">Save</button>
+        </div>
+        <div class="keystatus muted" id="keyStatus">Add your own Gemini key for AI chat. It stays in this browser only.</div>
+        <div class="feedback" id="feedback">Play a move and I'll review it.</div>
+        <div class="coach-btns">
+          <button id="explainBtn">Explain position</button>
+          <button id="hintBtn">Hint</button>
+        </div>
+        <div class="chat">
+          <div class="chatlog" id="chatlog"><p class="sys">Ask me things like “what's my plan?” or “why was that bad?”. Natural-language answers use your own Gemini key (entered above); without one I'll still give grounded analysis.</p></div>
+          <div class="chatrow">
+            <input id="chatInput" placeholder="Ask the coach…" />
+            <button class="primary" id="chatSend">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 style="margin-bottom:8px">Moves</h2>
+        <div class="moves" id="moves"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="chess.js"></script>
+  <script src="engine.js"></script>
+  <script src="coach.js"></script>
+  <script>
+  (function () {
+    "use strict";
+    const C = window.Chess, E = window.Engine, Coach = window.Coach;
+    const GLYPH = { 1:"♟",2:"♞",3:"♝",4:"♜",5:"♛",6:"♚" };
+    const ENGINE_DEPTH = 4;
+    const CLASSIFY_OPTS = { depth: 3, timeMs: 300 };
+
+    // DOM
+    const $ = (id) => document.getElementById(id);
+    const boardEl=$("board"), statusEl=$("status"), statusText=$("statusText"), turnDot=$("turnDot"),
+      spinner=$("spinner"), evalText=$("evalText"), movesEl=$("moves"), feedbackEl=$("feedback"),
+      promoEl=$("promo"), promoBtns=$("promoBtns"), dialogEl=$("dialog"), dialogText=$("dialogText"),
+      modeSel=$("mode"), sideSel=$("side"), timeSel=$("time"), sideRow=$("sideRow"), timeRow=$("timeRow"),
+      coachOnEl=$("coachOn"), blunderAlertEl=$("blunderAlert"), chatlog=$("chatlog"), chatInput=$("chatInput");
+
+    // State
+    let history=[C.startPosition()], sanList=[], selected=null, targets=new Map(),
+        orientation=C.WHITE, mode="cpu", humanColor=C.WHITE, thinking=false, gameOver=false, lastMove=null;
+    let hintLevel=0, hintFen=null, lastCls=null, analysisCache={fen:null,an:null};
+
+    const cur=()=>history[history.length-1];
+    const engineTime=()=>parseInt(timeSel.value,10);
+    const isHumanTurn=()=> !gameOver && !thinking && (mode==="2p" || cur().side===humanColor);
+
+    // Build squares
+    const cells=[];
+    for (let i=0;i<64;i++){ const d=document.createElement("div"); d.className="sq"; boardEl.appendChild(d); cells.push(d); }
+    const sqForCell=(i)=>{ const r=i>>3,c=i%8; return orientation===C.WHITE ? (7-r)*8+c : r*8+(7-c); };
+
+    function render(){
+      const s=cur();
+      const checkSq = C.inCheck(s,s.side) ? C.kingSquare(s,s.side) : -1;
+      for (let i=0;i<64;i++){
+        const sq=sqForCell(i), cell=cells[i], rank=sq>>3, file=sq%8;
+        let cls="sq "+((rank+file)%2===0?"dark":"light");
+        if (sq===selected) cls+=" sel";
+        if (lastMove && (sq===lastMove.from||sq===lastMove.to)) cls+=" last";
+        if (sq===checkSq) cls+=" check";
+        cell.className=cls; cell.dataset.sq=sq;
+        let html="";
+        const p=s.board[sq];
+        if (p!==0) html+=`<span class="piece ${p>0?"w":"b"}">${GLYPH[C.pieceType(p)]}</span>`;
+        if (targets.has(sq)) html += (p!==0 || isEp(sq)) ? `<span class="ring"></span>` : `<span class="dot"></span>`;
+        if (i%8===0) html+=`<span class="coord rank">${rank+1}</span>`;
+        if (i>=56) html+=`<span class="coord file">${String.fromCharCode(97+file)}</span>`;
+        cell.innerHTML=html;
+      }
+    }
+    const isEp=(sq)=> targets.has(sq) && targets.get(sq).some((m)=>m.flag===C.FLAG_ENPASSANT);
+
+    function select(sq){ selected=sq; targets=new Map();
+      for (const m of C.legalMovesFrom(cur(),sq)){ if(!targets.has(m.to)) targets.set(m.to,[]); targets.get(m.to).push(m); }
+      render(); }
+    function deselect(){ selected=null; targets=new Map(); render(); }
+
+    function renderMoves(){
+      let html="";
+      for (let i=0;i<sanList.length;i++){ if(i%2===0) html+=`<span class="num">${i/2+1}.</span>`; html+=`<span class="mv">${sanList[i].san}</span>`; }
+      movesEl.innerHTML=html; movesEl.scrollTop=movesEl.scrollHeight;
+    }
+
+    function updateStatus(){
+      const s=cur(), st=C.status(s);
+      statusEl.classList.remove("check","over");
+      turnDot.className="turn-dot "+(s.side===C.WHITE?"w":"b");
+      const d=E.evalDetailed(s);
+      evalText.textContent=(d.whiteCp>=0?"+":"−")+(Math.abs(d.whiteCp)/100).toFixed(1);
+      if (st.over){ gameOver=true; statusEl.classList.add("over");
+        if (st.reason==="checkmate") statusText.textContent=(st.winner===C.WHITE?"White":"Black")+" wins by checkmate";
+        else if (st.reason==="stalemate") statusText.textContent="Draw — stalemate";
+        else statusText.textContent="Draw — 50-move rule";
+        return;
+      }
+      gameOver=false;
+      let txt=(s.side===C.WHITE?"White":"Black")+" to move";
+      if (thinking) txt="Engine is thinking…";
+      else if (st.check){ txt+=" — check!"; statusEl.classList.add("check"); }
+      statusText.textContent=txt;
+    }
+
+    // ---- Move application ----
+    function doMove(move, byEngine){
+      const s=cur();
+      const san=C.toSAN(s,move);
+      const ns=C.makeMove(s,move);
+      history.push(ns); sanList.push({san,from:move.from,to:move.to});
+      lastMove={from:move.from,to:move.to};
+      deselect(); renderMoves(); updateStatus();
+      hintLevel=0; hintFen=null;
+      if (!gameOver && mode==="cpu" && ns.side!==humanColor) scheduleEngine();
+    }
+
+    function scheduleEngine(){
+      thinking=true; spinner.classList.add("on"); updateStatus();
+      setTimeout(()=>{
+        const res=E.search(cur(), {depth:ENGINE_DEPTH, timeMs:engineTime()});
+        thinking=false; spinner.classList.remove("on");
+        if (res.move) doMove(res.move, true); else updateStatus();
+      }, 30);
+    }
+
+    // ---- Human move + coaching ----
+    function onHumanMove(move){
+      const sBefore=cur();
+      if (coachOnEl.checked && blunderAlertEl.checked){
+        thinking=true; spinner.classList.add("on"); statusText.textContent="Checking your move…";
+        setTimeout(()=>{
+          const cls=E.classify(sBefore,move,CLASSIFY_OPTS);
+          thinking=false; spinner.classList.remove("on");
+          if (cls.quality==="blunder" && !cls.gaveMate) showBlunderDialog(move,sBefore,cls);
+          else commitHuman(move,sBefore,cls);
+        },20);
+      } else {
+        commitHuman(move,sBefore,null);
+      }
+    }
+
+    function commitHuman(move, sBefore, clsMaybe){
+      doMove(move,false);
+      if (!coachOnEl.checked) return;
+      if (clsMaybe){ showFeedback(clsMaybe); }
+      else {
+        feedbackEl.innerHTML=`<span class="muted">Reviewing…</span>`;
+        setTimeout(()=>{ const cls=E.classify(sBefore,move,CLASSIFY_OPTS); showFeedback(cls); },20);
+      }
+    }
+
+    function showFeedback(cls){
+      lastCls=cls;
+      const r=Coach.explainMove(cls);
+      feedbackEl.innerHTML=`<span class="badge ${r.q.cls}">${r.q.symbol} ${r.q.label}</span> ${escapeHtml(r.text)}`;
+    }
+
+    function showBlunderDialog(move, sBefore, cls){
+      const r=Coach.explainMove(cls);
+      dialogText.innerHTML=`<b>Heads up — this looks like a blunder.</b><br>${escapeHtml(r.text)}`;
+      dialogEl.classList.add("on");
+      $("dlgPlay").onclick=()=>{ dialogEl.classList.remove("on"); commitHuman(move,sBefore,cls); };
+      $("dlgTakeback").onclick=()=>{ dialogEl.classList.remove("on"); deselect(); };
+    }
+
+    function tryMoveTo(to){
+      const ms=targets.get(to); if(!ms||!ms.length) return;
+      if (ms.length===1){ onHumanMove(ms[0]); return; }
+      showPromotion(cur().side).then((pt)=>{ const mv=ms.find((m)=>m.promotion===pt)||ms[0]; onHumanMove(mv); });
+    }
+
+    // ---- Coach buttons ----
+    function analyzeCurrent(cb){
+      const s=cur(); const fen=C.toFEN(s);
+      if (analysisCache.fen===fen){ cb(analysisCache.an); return; }
+      thinking=true; spinner.classList.add("on"); statusText.textContent="Analyzing…";
+      setTimeout(()=>{
+        const an=E.analyze(s, {depth:ENGINE_DEPTH, timeMs:Math.max(600,engineTime())});
+        analysisCache={fen,an}; thinking=false; spinner.classList.remove("on"); updateStatus(); cb(an);
+      },20);
+    }
+
+    $("explainBtn").onclick=()=>{ if(gameOver){feedbackEl.textContent=Coach.explainPosition({none:true,status:C.status(cur())});return;}
+      analyzeCurrent((an)=>{ feedbackEl.textContent=Coach.explainPosition(an); }); };
+
+    $("hintBtn").onclick=()=>{
+      if (gameOver) return;
+      const fen=C.toFEN(cur());
+      if (hintFen!==fen){ hintLevel=0; hintFen=fen; }
+      hintLevel=Math.min(3,hintLevel+1);
+      analyzeCurrent((an)=>{ feedbackEl.textContent=Coach.hint(hintLevel,an,cur()); });
+    };
+
+    // ---- Gemini API key (user-supplied, stored only in this browser) ----
+    const geminiKeyEl=$("geminiKey"), keyStatusEl=$("keyStatus"), saveKeyBtn=$("saveKey");
+    let userKey="";
+    try { userKey=localStorage.getItem("geminiKey")||""; } catch(e){}
+    if (userKey){ geminiKeyEl.value=userKey; setKeyStatus("Key loaded from this browser.",""); }
+    function setKeyStatus(msg,cls){ keyStatusEl.textContent=msg; keyStatusEl.className="keystatus "+(cls||"muted"); }
+    saveKeyBtn.onclick=async ()=>{
+      userKey=geminiKeyEl.value.trim();
+      try { localStorage.setItem("geminiKey",userKey); } catch(e){}
+      if (!userKey){ setKeyStatus("Key cleared — chat will use grounded (non-AI) answers.","muted"); return; }
+      setKeyStatus("Checking key…","warn");
+      const res=await Coach.validateKey(userKey);
+      if (res.status==="ok") setKeyStatus("✓ Key works — AI coach enabled.","ok");
+      else if (res.status==="badkey") setKeyStatus("✗ Invalid key — please check it.","bad");
+      else setKeyStatus("⚠ Couldn't verify ("+(res.detail||"network")+"). Try again.","warn");
+    };
+
+    // ---- Chat ----
+    function logChat(cls,text){ const p=document.createElement("p"); p.className=cls; p.textContent=text; chatlog.appendChild(p); chatlog.scrollTop=chatlog.scrollHeight; }
+    function groundedAnswer(an){ return Coach.explainPosition(an) + (lastCls ? "  Your last move: "+Coach.explainMove(lastCls).text : ""); }
+    function sendChat(){
+      const q=chatInput.value.trim(); if(!q) return; chatInput.value="";
+      logChat("you","You: "+q);
+      analyzeCurrent(async (an)=>{
+        const facts=Coach.buildFacts(an,lastCls);
+        facts.sideToMove = cur().side===C.WHITE ? "white":"black";
+        logChat("sys","Coach is thinking…");
+        const res=await Coach.askLLM(q,facts,userKey);
+        chatlog.removeChild(chatlog.lastChild); // remove "thinking"
+        if (res.status==="ok" && res.text){ logChat("ai","Coach: "+res.text); }
+        else if (res.status==="nokey"){ logChat("ai","Coach (grounded — add your Gemini key above for AI answers): "+groundedAnswer(an)); }
+        else if (res.status==="badkey"){ logChat("sys","Your Gemini key looks invalid — check it in the box above."); logChat("ai","Grounded analysis: "+groundedAnswer(an)); }
+        else { logChat("sys","Couldn't reach Gemini ("+(res.detail||"network")+")."); logChat("ai","Grounded analysis: "+groundedAnswer(an)); }
+      });
+    }
+    $("chatSend").onclick=sendChat;
+    chatInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") sendChat(); });
+
+    // ---- Promotion ----
+    let promoResolve=null;
+    function showPromotion(color){
+      promoBtns.innerHTML="";
+      [C.QUEEN,C.ROOK,C.BISHOP,C.KNIGHT].forEach((pt)=>{ const b=document.createElement("button");
+        b.innerHTML=`<span class="piece ${color===C.WHITE?"w":"b"}">${GLYPH[pt]}</span>`;
+        b.onclick=()=>{ promoEl.classList.remove("on"); if(promoResolve) promoResolve(pt); }; promoBtns.appendChild(b); });
+      promoEl.classList.add("on");
+      return new Promise((res)=>promoResolve=res);
+    }
+
+    // ---- Pointer interaction ----
+    let dragFrom=null, dragging=false, ghost=null, sx=0, sy=0, dragFromCache=null;
+    const DRAG_T=6;
+    function sqFromPoint(x,y){ const el=document.elementFromPoint(x,y); if(!el) return -1; const s=el.closest(".sq"); return s?parseInt(s.dataset.sq,10):-1; }
+    const ownPiece=(sq)=>{ const p=cur().board[sq]; return p!==0 && C.pieceColor(p)===cur().side; };
+
+    boardEl.addEventListener("pointerdown",(e)=>{
+      if (!isHumanTurn()) return;
+      const sq=sqFromPoint(e.clientX,e.clientY); if(sq<0) return; e.preventDefault();
+      if (selected!==null && targets.has(sq)){ tryMoveTo(sq); return; }
+      if (ownPiece(sq)){ select(sq); dragFrom=sq; dragging=false; sx=e.clientX; sy=e.clientY; boardEl.setPointerCapture(e.pointerId); }
+      else deselect();
+    });
+    boardEl.addEventListener("pointermove",(e)=>{
+      if (dragFrom===null) return;
+      if (!dragging){ if (Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)<DRAG_T) return; dragging=true;
+        const p=cur().board[dragFrom]; ghost=document.createElement("div"); ghost.className="ghost "+(p>0?"w":"b");
+        ghost.textContent=GLYPH[C.pieceType(p)]; document.body.appendChild(ghost); }
+      ghost.style.left=e.clientX+"px"; ghost.style.top=e.clientY+"px";
+    });
+    boardEl.addEventListener("pointerup",(e)=>{
+      if (dragFrom===null) return;
+      const wasDrag=dragging, target=sqFromPoint(e.clientX,e.clientY);
+      dragFromCache=dragFrom; if(ghost){ghost.remove();ghost=null;} dragging=false; dragFrom=null;
+      if (wasDrag && target>=0 && target!==dragFromCache && targets.has(target)) tryMoveTo(target);
+    });
+
+    // ---- Controls ----
+    function newGame(){
+      history=[C.startPosition()]; sanList=[]; selected=null; targets=new Map();
+      lastMove=null; gameOver=false; thinking=false; lastCls=null; hintLevel=0; hintFen=null;
+      analysisCache={fen:null,an:null};
+      spinner.classList.remove("on"); feedbackEl.textContent="Play a move and I'll review it.";
+      mode=modeSel.value; humanColor=sideSel.value==="b"?C.BLACK:C.WHITE;
+      orientation=(mode==="cpu")?humanColor:C.WHITE;
+      sideRow.style.display=mode==="cpu"?"":"none"; timeRow.style.display=mode==="cpu"?"":"none";
+      renderMoves(); render(); updateStatus();
+      if (mode==="cpu" && cur().side!==humanColor) scheduleEngine();
+    }
+    function undo(){
+      if (thinking) return;
+      const plies=(mode==="cpu")?2:1;
+      for (let i=0;i<plies && history.length>1;i++){ history.pop(); sanList.pop(); }
+      gameOver=false; lastCls=null; hintLevel=0; hintFen=null; analysisCache={fen:null,an:null};
+      const last=sanList[sanList.length-1]; lastMove=last?{from:last.from,to:last.to}:null;
+      deselect(); renderMoves(); updateStatus();
+      if (mode==="cpu" && !gameOver && cur().side!==humanColor) scheduleEngine();
+    }
+    $("newGame").onclick=newGame; $("undo").onclick=undo;
+    $("flip").onclick=()=>{ orientation^=1; render(); };
+    modeSel.onchange=newGame; sideSel.onchange=newGame;
+
+    function escapeHtml(t){ return t.replace(/[&<>]/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])); }
+
+    newGame();
+  })();
+  </script>
+</body>
+</html>
